@@ -232,7 +232,9 @@ void* gc_metal_layer(void)
 {
   if (!s_layer)
   {
-    s_layer = [GCMetalLayer layer];
+    // alloc/init (et pas [GCMetalLayer layer]) : la couche est gardée même si ce fichier est compilé sans ARC
+    // (sinon elle disparaissait en quittant un jeu, et la partie suivante plantait).
+    s_layer = [[GCMetalLayer alloc] init];
     s_layer.device = MTLCreateSystemDefaultDevice();
     s_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
     s_layer.opaque = YES;
