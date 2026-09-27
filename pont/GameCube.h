@@ -65,6 +65,16 @@ GC_API void gc_set_input(uint32_t buttons, float main_x, float main_y, float c_x
 GC_API bool gc_save_state(const char* path);
 GC_API bool gc_load_state(const char* path);
 
+// Réglage de Dolphin, avant gc_start (valeur numérique ; 0 / 1 pour oui / non). Faux si le nom est inconnu.
+// dual_core, sync_gpu, sync_on_skip_idle, dsp_thread, fastmem, efb_access, bbox, defer_efb_copies,
+// skip_efb_copy_to_ram, skip_xfb_copy_to_ram, immediate_xfb, efb_scale, shader_mode (0 spécialisés,
+// 1 ubershaders, 2 hybride, 3 sans attendre), vi_skip (0 non, 1 oui, 2 auto).
+GC_API bool gc_set_option(const char* name, double value);
+
+// Vitesse du processeur simulé pendant la partie : 1 = normale, jusqu'à 0,3 (moins de calcul, le jeu
+// peut ralentir un peu dans les passages chargés). Comme l'« horloge adaptative » d'iCube.
+GC_API void gc_set_cpu_clock(double factor);
+
 // Vitesse de l'émulation (1 = vitesse de la console) et images par seconde. Mesure temporaire.
 GC_API double gc_speed(void);
 GC_API double gc_fps(void);

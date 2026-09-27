@@ -452,6 +452,57 @@ bool gc_load_state(const char* path)
   return timed_out == 0 && s_load_ok;
 }
 
+bool gc_set_option(const char* name, double value)
+{
+  if (!name)
+    return false;
+  const std::string key = name;
+  const bool on = value != 0;
+  const int number = (int)value;
+  if (key == "dual_core")
+    Config::SetBase(Config::MAIN_CPU_THREAD, on);
+  else if (key == "sync_gpu")
+    Config::SetBase(Config::MAIN_SYNC_GPU, on);
+  else if (key == "sync_on_skip_idle")
+    Config::SetBase(Config::MAIN_SYNC_ON_SKIP_IDLE, on);
+  else if (key == "dsp_thread")
+    Config::SetBase(Config::MAIN_DSP_THREAD, on);
+  else if (key == "fastmem")
+    Config::SetBase(Config::MAIN_FASTMEM, on && FastmemAvailable());
+  else if (key == "efb_access")
+    Config::SetBase(Config::GFX_HACK_EFB_ACCESS_ENABLE, on);
+  else if (key == "bbox")
+    Config::SetBase(Config::GFX_HACK_BBOX_ENABLE, on);
+  else if (key == "defer_efb_copies")
+    Config::SetBase(Config::GFX_HACK_DEFER_EFB_COPIES, on);
+  else if (key == "skip_efb_copy_to_ram")
+    Config::SetBase(Config::GFX_HACK_SKIP_EFB_COPY_TO_RAM, on);
+  else if (key == "skip_xfb_copy_to_ram")
+    Config::SetBase(Config::GFX_HACK_SKIP_XFB_COPY_TO_RAM, on);
+  else if (key == "immediate_xfb")
+    Config::SetBase(Config::GFX_HACK_IMMEDIATE_XFB, on);
+  else if (key == "efb_scale")
+    Config::SetBase(Config::GFX_EFB_SCALE, std::clamp(number, 1, 4));
+  else if (key == "shader_mode")
+    Config::SetBase(Config::GFX_SHADER_COMPILATION_MODE,
+                    static_cast<ShaderCompilationMode>(std::clamp(number, 0, 3)));
+  else if (key == "vi_skip")
+    Config::SetBase(Config::GFX_HACK_VI_SKIP_MODE, static_cast<TriState>(std::clamp(number, 0, 2)));
+  else
+    return false;
+  NSLog(@"[GameCube] option %s = %g", name, value);
+  return true;
+}
+
+void gc_set_cpu_clock(double factor)
+{
+  const float clock = std::clamp((float)factor, 0.3f, 1.0f);
+  DOLHostQueueRunAsync(^{
+    Config::SetCurrent(Config::MAIN_OVERCLOCK_ENABLE, clock < 0.999f);
+    Config::SetCurrent(Config::MAIN_OVERCLOCK, clock);
+  });
+}
+
 double gc_speed(void)
 {
   if (!s_loop)
