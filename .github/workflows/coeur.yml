@@ -23,6 +23,12 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 350
     steps:
+      - name: Récupérer ce dépôt (le pont)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: moi
+          persist-credentials: false
+
       - name: Récupérer iCube (version figée)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,6 +55,15 @@ jobs:
             coeur-${{ env.ICUBE_SHA }}-
             coeur-
 
+      # Le pont est compilé dans la bibliothèque iOS de Dolphin (à côté de Host.mm) : un seul binaire.
+      - name: Ajouter le pont à Dolphin
+        run: |
+          set -euo pipefail
+          cp moi/pont/GameCube.h moi/pont/GameCube.mm icube/Source/iOS/Library/
+          perl -0pi -e 's/HostQueue\.mm\n\)/HostQueue.mm\n  GameCube.mm\n)/' icube/Source/iOS/Library/CMakeLists.txt
+          grep -q "GameCube.mm" icube/Source/iOS/Library/CMakeLists.txt
+          cat icube/Source/iOS/Library/CMakeLists.txt
+
       - name: Compiler le cœur (iPhone seulement)
         id: compiler
         working-directory: icube
@@ -67,15 +82,38 @@ jobs:
           path: icube/build-iphoneos-Release
           key: coeur-${{ env.ICUBE_SHA }}-${{ github.run_id }}
 
-      - name: Examiner le résultat
-        working-directory: icube/build/xcframework
+      # GameCube.framework (binaire renommé, en-tête du pont) + dossier Sys de Dolphin, pour l'app.
+      - name: Préparer GameCube.framework
         run: |
           set -euo pipefail
-          F=PVlibDolphin-ios.framework
-          B="$F/PVlibDolphin-ios"
-          mkdir -p "$GITHUB_WORKSPACE/sortie"
+          SRC=icube/build/xcframework/PVlibDolphin-ios.framework/PVlibDolphin-ios
+          OUT="$GITHUB_WORKSPACE/sortie"
+          F="$OUT/GameCube.framework"
+          mkdir -p "$F/Headers"
+          cp "$SRC" "$F/GameCube"
+          install_name_tool -id @rpath/GameCube.framework/GameCube "$F/GameCube"
+          cp moi/pont/GameCube.h "$F/Headers/"
+          cat > "$F/Info.plist" <<'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleDevelopmentRegion</key><string>en</string>
+            <key>CFBundleExecutable</key><string>GameCube</string>
+            <key>CFBundleIdentifier</key><string>org.overrrrhere.GameCube</string>
+            <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+            <key>CFBundleName</key><string>GameCube</string>
+            <key>CFBundlePackageType</key><string>FMWK</string>
+            <key>CFBundleShortVersionString</key><string>1.0</string>
+            <key>CFBundleVersion</key><string>1</string>
+            <key>MinimumOSVersion</key><string>17.0</string>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint "$F/Info.plist"
+          B="$F/GameCube"
           {
-            echo "iCube $ICUBE_SHA"
+            echo "iCube $ICUBE_SHA + pont $(shasum -a 256 moi/pont/GameCube.mm | cut -c1-16)"
             xcodebuild -version
             ls -l "$B"
             shasum -a 256 "$B"
@@ -84,9 +122,13 @@ jobs:
             otool -D "$B"
             otool -L "$B"
             echo "Symboles exportés : $(nm -gU "$B" | wc -l)"
-          } | tee "$GITHUB_WORKSPACE/sortie/examen.txt"
-          { echo '```'; cat "$GITHUB_WORKSPACE/sortie/examen.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-          ditto -c -k --keepParent "$F" "$GITHUB_WORKSPACE/sortie/PVlibDolphin-ios.framework.zip"
+            echo "Fonctions du pont :"
+            nm -gU "$B" | grep ' _gc_' || { echo "AUCUNE"; exit 1; }
+          } | tee "$OUT/examen.txt"
+          { echo '```'; cat "$OUT/examen.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          (cd "$OUT" && ditto -c -k --keepParent GameCube.framework GameCube.framework.zip && rm -rf GameCube.framework)
+          (cd icube/Data && ditto -c -k --keepParent Sys "$OUT/Sys.zip")
+          ls -l "$OUT"
 
       - name: Publier le cœur (réservé aux téléchargements du dépôt)
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
