@@ -93,6 +93,8 @@ jobs:
           cp "$SRC" "$F/GameCube"
           install_name_tool -id @rpath/GameCube.framework/GameCube "$F/GameCube"
           cp moi/pont/GameCube.h "$F/Headers/"
+          mkdir -p "$F/Modules"
+          printf 'framework module GameCube {\n  umbrella header "GameCube.h"\n  export *\n}\n' > "$F/Modules/module.modulemap"
           cat > "$F/Info.plist" <<'EOF'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

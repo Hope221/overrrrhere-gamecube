@@ -70,7 +70,7 @@
 static std::atomic<bool> s_ready{false};
 static std::atomic<bool> s_loop{false};  // un jeu est lancé (du démarrage à l'arrêt complet)
 static GCMetalLayer* s_layer = nil;
-static CGSize s_drawable = CGSizeZero;
+static CGSize s_drawable = {0, 0}; // pas CGSizeZero : CoreGraphics n'est pas lié au cœur
 static float s_scale = 2.0f;
 static dispatch_source_t s_pump = nil;
 static std::mutex s_error_mutex;
