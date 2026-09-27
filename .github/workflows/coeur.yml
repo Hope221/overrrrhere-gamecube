@@ -1,0 +1,97 @@
+# Compile le cœur Dolphin d'iCube (GameCube, sans JIT) pour iPhone, à une version figée.
+# Sécurité : lancement manuel uniquement, aucun secret, droits en lecture seule,
+# iCube et les actions GitHub figés par leur identifiant exact (SHA).
+name: Cœur GameCube
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coeur-gamecube
+  cancel-in-progress: false
+
+env:
+  # iCube, branche develop, « alpha build 170 » du 26/09/2026.
+  ICUBE_SHA: f24ca8741b80fa8737b3b4e47940997016cd8052
+  XCODE_APP: /Applications/Xcode_26.3.app
+
+jobs:
+  coeur:
+    runs-on: macos-26
+    timeout-minutes: 350
+    steps:
+      - name: Récupérer iCube (version figée)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: Provenance-Emu/iCube
+          ref: ${{ env.ICUBE_SHA }}
+          path: icube
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Choisir Xcode
+        run: |
+          ls -d /Applications/Xcode*.app
+          sudo xcode-select -s "$XCODE_APP"
+          xcodebuild -version
+          cmake --version | head -1
+          echo "ninja $(ninja --version)"
+
+      - name: Reprendre la compilation précédente
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: icube/build-iphoneos-Release
+          key: coeur-${{ env.ICUBE_SHA }}-${{ github.run_id }}
+          restore-keys: |
+            coeur-${{ env.ICUBE_SHA }}-
+            coeur-
+
+      - name: Compiler le cœur (iPhone seulement)
+        id: compiler
+        working-directory: icube
+        run: |
+          set -euo pipefail
+          # Le dépôt iCube contient des cœurs déjà compilés : on les retire pour être sûr
+          # que le résultat vient bien de cette compilation.
+          rm -rf build/xcframework
+          python3 BuildiOSXCFramework.py --platforms OS64
+
+      # Gardée même en cas d'échec : l'essai suivant repart des fichiers déjà compilés.
+      - name: Sauver la compilation
+        if: always() && steps.compiler.outcome != 'skipped'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: icube/build-iphoneos-Release
+          key: coeur-${{ env.ICUBE_SHA }}-${{ github.run_id }}
+
+      - name: Examiner le résultat
+        working-directory: icube/build/xcframework
+        run: |
+          set -euo pipefail
+          F=PVlibDolphin-ios.framework
+          B="$F/PVlibDolphin-ios"
+          mkdir -p "$GITHUB_WORKSPACE/sortie"
+          {
+            echo "iCube $ICUBE_SHA"
+            xcodebuild -version
+            ls -l "$B"
+            shasum -a 256 "$B"
+            lipo -info "$B"
+            otool -l "$B" | grep -A4 LC_BUILD_VERSION
+            otool -D "$B"
+            otool -L "$B"
+            echo "Symboles exportés : $(nm -gU "$B" | wc -l)"
+          } | tee "$GITHUB_WORKSPACE/sortie/examen.txt"
+          { echo '```'; cat "$GITHUB_WORKSPACE/sortie/examen.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          ditto -c -k --keepParent "$F" "$GITHUB_WORKSPACE/sortie/PVlibDolphin-ios.framework.zip"
+
+      - name: Publier le cœur (réservé aux téléchargements du dépôt)
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coeur-gamecube
+          path: sortie
+          if-no-files-found: error
+          retention-days: 30
