@@ -1,0 +1,9 @@
+# never commit keys, seeds or games
+boot9.bin
+boot9_prot.bin
+seeddb.bin
+*.3ds
+*.cci
+*.cia
+*.cxi
+__pycache__/
