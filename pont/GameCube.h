@@ -1,4 +1,4 @@
-// Pont GameCube (cœur Dolphin d'iCube) pour l'app overrrrhere : une API C simple,
+// Pont GameCube et Wii (cœur Dolphin d'iCube) pour l'app overrrrhere : une API C simple,
 // sans en-tête Dolphin, appelée depuis Swift.
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -36,6 +36,19 @@ enum {
   GC_STATE_STOPPING = 4,
 };
 
+// Système d'un disque (gc_disc_info).
+enum {
+  GC_DISC_UNKNOWN = -1,
+  GC_DISC_GAMECUBE = 0,
+  GC_DISC_WII = 1,
+};
+
+// Appareils de gc_set_button / gc_set_axis : manette GameCube 1 et Wiimote 1.
+enum {
+  GC_DEVICE_GAMECUBE = 0,
+  GC_DEVICE_WIIMOTE = 4,
+};
+
 // Une seule fois, sur le fil principal : dossier de travail de Dolphin (cartes mémoire,
 // cache des shaders, réglages). Le dossier « Sys » de Dolphin doit être à la racine de l'app.
 GC_API bool gc_init(const char* user_dir);
@@ -47,7 +60,7 @@ GC_API void* gc_metal_layer(void);
 // Taille de la vue en points et échelle de l'écran : à appeler à chaque changement de taille.
 GC_API void gc_layout(double width, double height, double scale);
 
-// Lance le jeu (chemin du fichier .iso, .gcm, .rvz…). Retour immédiat ; suivre gc_state.
+// Lance le jeu GameCube ou Wii (chemin du fichier .iso, .gcm, .rvz, .wbfs…). Retour immédiat ; suivre gc_state.
 // Sur le fil principal.
 GC_API bool gc_start(const char* path);
 
@@ -61,6 +74,16 @@ GC_API void gc_stop(void);
 GC_API void gc_set_input(uint32_t buttons, float main_x, float main_y, float c_x, float c_y,
                          float l, float r);
 
+// Bouton ou axe d'un appareil GC_DEVICE_*, par son numéro dans ButtonType.h du backend iOS de
+// Dolphin (Wiimote 100…, Nunchuk 200…, Classic Controller 300…). Axe : de -1 à 1 pour un stick
+// (chaque direction lit la même valeur signée), de 0 à 1 pour une gâchette.
+GC_API void gc_set_button(int device, int button, bool pressed);
+GC_API void gc_set_axis(int device, int axis, float value);
+
+// Système du disque (GC_DISC_*) et identifiant du jeu (ex. « RMCE01 »), copié dans game_id.
+// N'importe quel fil, sans gc_init.
+GC_API int gc_disc_info(const char* path, char* game_id, int size);
+
 // Sauvegarde / charge une partie (fichier d'état). Attendent la fin. Pas sur le fil principal.
 GC_API bool gc_save_state(const char* path);
 GC_API bool gc_load_state(const char* path);
@@ -68,7 +91,8 @@ GC_API bool gc_load_state(const char* path);
 // Réglage de Dolphin, avant gc_start (valeur numérique ; 0 / 1 pour oui / non). Faux si le nom est inconnu.
 // dual_core, sync_gpu, sync_on_skip_idle, dsp_thread, fastmem, efb_access, bbox, defer_efb_copies,
 // skip_efb_copy_to_ram, skip_xfb_copy_to_ram, immediate_xfb, efb_scale, shader_mode (0 spécialisés,
-// 1 ubershaders, 2 hybride, 3 sans attendre), vi_skip (0 non, 1 oui, 2 auto).
+// 1 ubershaders, 2 hybride, 3 sans attendre), vi_skip (0 non, 1 oui, 2 auto),
+// wii_extension (manette branchée sur la Wiimote : 0 aucune, 1 Nunchuk, 2 Classic Controller).
 GC_API bool gc_set_option(const char* name, double value);
 
 // Vitesse du processeur simulé pendant la partie : 1 = normale, jusqu'à 0,3 (moins de calcul, le jeu

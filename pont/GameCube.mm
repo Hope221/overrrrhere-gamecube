@@ -1,6 +1,6 @@
-// Pont GameCube pour l'app overrrrhere. Reprend la recette d'iCube (DolphinCoreService.mm pour
-// le démarrage, EmulationCoordinator.mm pour le lancement d'un jeu), réduite à la GameCube,
-// sans JIT (Cached Interpreter), sans BIOS (démarrage direct du disque).
+// Pont GameCube et Wii pour l'app overrrrhere. Reprend la recette d'iCube (DolphinCoreService.mm
+// pour le démarrage, EmulationCoordinator.mm pour le lancement d'un jeu), sans JIT (Cached
+// Interpreter), sans BIOS (démarrage direct du disque).
 // Compilé avec le cœur Dolphin (Source/iOS/Library) par le workflow « Cœur GameCube ».
 // SPDX-License-Identifier: GPL-2.0-or-later
 
@@ -31,12 +31,16 @@
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
+#include "Core/Config/WiimoteSettings.h"
 #include "Core/HW/GCPad.h"
 #include "Core/HW/SI/SI_Device.h"
+#include "Core/HW/Wiimote.h"
 #include "Core/Host.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/State.h"
 #include "Core/System.h"
+#include "DiscIO/Enums.h"
+#include "DiscIO/Volume.h"
 #include "InputCommon/ControllerEmu/ControllerEmu.h"
 #include "InputCommon/ControllerInterface/ControllerInterface.h"
 #include "InputCommon/ControllerInterface/iOS/StateManager.h"
@@ -77,6 +81,7 @@ static std::mutex s_error_mutex;
 static std::string s_error;
 static dispatch_semaphore_t s_loaded = nil;
 static std::atomic<bool> s_load_ok{false};
+static std::atomic<int> s_wii_extension{1};  // 0 aucune, 1 Nunchuk, 2 Classic Controller
 
 static void SetError(const std::string& message)
 {
@@ -134,13 +139,18 @@ static void ApplySettings()
   Config::SetBase(Config::GetInfoForSIDevice(0), SerialInterface::SIDEVICE_GC_CONTROLLER);
   for (int i = 1; i < 4; ++i)
     Config::SetBase(Config::GetInfoForSIDevice(i), SerialInterface::SIDEVICE_NONE);
+  // Wii : une seule Wiimote, émulée (jamais de vraie Wiimote en Bluetooth).
+  Config::SetBase(Config::GetInfoForWiimoteSource(0), WiimoteSource::Emulated);
+  for (int i = 1; i < 4; ++i)
+    Config::SetBase(Config::GetInfoForWiimoteSource(i), WiimoteSource::None);
+  Config::SetBase(Config::WIIMOTE_BB_SOURCE, WiimoteSource::None);
 }
 
-// Manette 1 de la GameCube = appareil « Touchscreen » n° 0 du backend iOS de Dolphin, que l'app
-// alimente elle-même (manette physique et contrôles tactiles) avec gc_set_input.
-static void BindPad1()
+// Lie la manette n° 0 de config à l'appareil « Touchscreen » n° device_id du backend iOS de
+// Dolphin, avec le profil Touchscreen.ini de Dolphin (Sys/Profiles/…). extension : réglage
+// « Extension » du profil à remplacer (Wiimote), vide pour le garder.
+static void BindTouchscreen(InputConfig* config, int device_id, const std::string& extension)
 {
-  InputConfig* config = Pad::GetConfig();
   if (!config || config->GetControllerCount() == 0)
     return;
   ciface::Core::DeviceQualifier touch;
@@ -148,7 +158,7 @@ static void BindPad1()
   for (const auto& device : g_controller_interface.GetAllDevices())
   {
     if (device && device->GetSource() == "iOS" && device->GetName() == "Touchscreen" &&
-        device->GetId() == 0)
+        device->GetId() == device_id)
     {
       touch.FromDevice(device.get());
       found = true;
@@ -157,7 +167,7 @@ static void BindPad1()
   }
   if (!found)
   {
-    NSLog(@"[GameCube] touchscreen device not found");
+    NSLog(@"[GameCube] touchscreen device %d not found", device_id);
     return;
   }
   auto* pad = config->GetController(0);
@@ -166,12 +176,29 @@ static void BindPad1()
       directory + (directory.empty() || directory.back() == '/' ? "" : "/") + "Touchscreen.ini";
   Common::IniFile ini;
   if (File::Exists(profile) && ini.Load(profile))
-    pad->LoadConfig(ini.GetOrCreateSection("Profile"));
+  {
+    auto* section = ini.GetOrCreateSection("Profile");
+    if (!extension.empty())
+      section->Set("Extension", extension);
+    pad->LoadConfig(section);
+  }
   else
+  {
     pad->LoadDefaults(g_controller_interface);
+  }
   pad->SetDefaultDevice(touch);
   pad->UpdateReferences(g_controller_interface);
   config->SaveConfig();
+}
+
+// Manette 1 de la GameCube = appareil n° 0 ; Wiimote 1 (émulée) = appareil n° 4. L'app les
+// alimente elle-même (manette physique et contrôles tactiles) avec gc_set_input / gc_set_button /
+// gc_set_axis. La manette GameCube reste branchée pour les jeux Wii qui l'acceptent.
+static void BindControllers()
+{
+  BindTouchscreen(Pad::GetConfig(), 0, "");
+  static const char* extensions[] = {"None", "Nunchuk", "Classic"};
+  BindTouchscreen(Wiimote::GetConfig(), 4, extensions[std::clamp(s_wii_extension.load(), 0, 2)]);
 }
 
 static void StartInputPump()
@@ -289,14 +316,14 @@ bool gc_start(const char* path)
           BootParameters::GenerateFromFile(std::vector<std::string>{game});
       if (!boot)
       {
-        SetError("This file can't be read as a GameCube game.");
+        SetError("This file can't be read as a GameCube or Wii game.");
         return;
       }
 
       // Le rendu Metal modifie la couche : sur le fil principal (comme iCube).
       dispatch_sync(dispatch_get_main_queue(), ^{
         auto local_boot = std::move(boot);
-        BindPad1();
+        BindControllers();
         booted = BootManager::BootCore(system, std::move(local_boot), wsi);
       });
     });
@@ -340,6 +367,7 @@ bool gc_start(const char* path)
       Core::DeclareAsHostThread();
     });
     ciface::iOS::StateManager::GetInstance()->ClearController(0);
+    ciface::iOS::StateManager::GetInstance()->ClearController(4);
     s_loop = false;
     NSLog(@"[GameCube] emulation ended");
   });
@@ -416,6 +444,40 @@ void gc_set_input(uint32_t buttons, float main_x, float main_y, float c_x, float
   manager->SetAxisValue(0, ButtonType::TRIGGER_R, r);
 }
 
+void gc_set_button(int device, int button, bool pressed)
+{
+  ciface::iOS::StateManager::GetInstance()->SetButtonPressed(
+      device, static_cast<ciface::iOS::ButtonType>(button), pressed);
+}
+
+void gc_set_axis(int device, int axis, float value)
+{
+  ciface::iOS::StateManager::GetInstance()->SetAxisValue(
+      device, static_cast<ciface::iOS::ButtonType>(axis), value);
+}
+
+int gc_disc_info(const char* path, char* game_id, int size)
+{
+  if (game_id && size > 0)
+    game_id[0] = 0;
+  if (!path)
+    return GC_DISC_UNKNOWN;
+  const std::unique_ptr<DiscIO::Volume> volume = DiscIO::CreateVolume(std::string(path));
+  if (!volume)
+    return GC_DISC_UNKNOWN;
+  if (game_id && size > 0)
+    strlcpy(game_id, volume->GetGameID().c_str(), (size_t)size);
+  switch (volume->GetVolumeType())
+  {
+  case DiscIO::Platform::GameCubeDisc:
+    return GC_DISC_GAMECUBE;
+  case DiscIO::Platform::WiiDisc:
+    return GC_DISC_WII;
+  default:
+    return GC_DISC_UNKNOWN;
+  }
+}
+
 static double ModifiedTime(const std::string& path)
 {
   struct stat info;
@@ -490,6 +552,8 @@ bool gc_set_option(const char* name, double value)
                     static_cast<ShaderCompilationMode>(std::clamp(number, 0, 3)));
   else if (key == "vi_skip")
     Config::SetBase(Config::GFX_HACK_VI_SKIP_MODE, static_cast<TriState>(std::clamp(number, 0, 2)));
+  else if (key == "wii_extension")
+    s_wii_extension = std::clamp(number, 0, 2);
   else
     return false;
   NSLog(@"[GameCube] option %s = %g", name, value);
