@@ -48,6 +48,7 @@
 #include "InputCommon/ControllerInterface/iOS/StateManager.h"
 #include "InputCommon/InputConfig.h"
 #include "UICommon/UICommon.h"
+#include "VideoCommon/FrameDumper.h"
 #include "VideoCommon/PerformanceMetrics.h"
 #include "VideoCommon/Present.h"
 #include "VideoCommon/VideoConfig.h"
@@ -585,6 +586,54 @@ void gc_set_cpu_clock(double factor)
     Config::SetCurrent(Config::MAIN_OVERCLOCK_ENABLE, clock < 0.999f);
     Config::SetCurrent(Config::MAIN_OVERCLOCK, clock);
   });
+}
+
+void gc_set_fill_screen(bool fill)
+{
+  // Réglage de base (pour la partie suivante) et, pendant une partie, sur la couche de la partie en cours
+  // (au-dessus des réglages propres à certains jeux), comme gc_set_cpu_clock.
+  Config::SetBase(Config::GFX_WIDESCREEN_HACK, fill);
+  Config::SetBase(Config::GFX_ASPECT_RATIO, fill ? AspectMode::Stretch : AspectMode::Auto);
+  if (!s_loop)
+    return;
+  DOLHostQueueRunAsync(^{
+    Config::SetCurrent(Config::GFX_WIDESCREEN_HACK, fill);
+    Config::SetCurrent(Config::GFX_ASPECT_RATIO, fill ? AspectMode::Stretch : AspectMode::Auto);
+  });
+}
+
+static long long FileSize(const std::string& path)
+{
+  struct stat info;
+  if (stat(path.c_str(), &info) != 0)
+    return -1;
+  return info.st_size;
+}
+
+bool gc_capture_frame(const char* path)
+{
+  if (!s_loop || !path || !g_frame_dumper)
+    return false;
+  // Écrite à côté puis renommée : jamais d'image à moitié écrite à la place de la vraie.
+  const std::string file = path;
+  const std::string part = file + ".part.png";
+  unlink(part.c_str());
+  g_frame_dumper->SaveScreenshot(part);
+  // La demande est prise à la prochaine image affichée, puis le PNG s'écrit sur le fil des captures de Dolphin :
+  // fini quand le fichier ne grandit plus.
+  long long last = -1;
+  for (int i = 0; i < 50; ++i)  // 1,5 seconde au plus
+  {
+    usleep(30 * 1000);
+    if (g_frame_dumper->IsFrameDumping())
+      continue;
+    const long long size = FileSize(part);
+    if (size > 0 && size == last)
+      return rename(part.c_str(), file.c_str()) == 0;
+    last = size;
+  }
+  unlink(part.c_str());
+  return false;
 }
 
 double gc_speed(void)

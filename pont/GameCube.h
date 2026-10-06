@@ -102,6 +102,14 @@ GC_API bool gc_set_option(const char* name, double value);
 // peut ralentir un peu dans les passages chargés). Comme l'« horloge adaptative » d'iCube.
 GC_API void gc_set_cpu_clock(double factor);
 
+// Image sur tout l'écran (Fill screen) : « widescreen hack » de Dolphin + image étirée à la vue. La scène 3D est
+// élargie à la forme de l'écran (plus de décor sur les côtés) au lieu d'être déformée. Avant ou pendant la partie.
+GC_API void gc_set_fill_screen(bool fill);
+
+// Image du jeu en PNG (vignettes des sauvegardes d'état). Dolphin l'écrit à la prochaine image affichée : le jeu
+// doit tourner (pas en pause). Attend la fin, 1,5 seconde au plus ; faux sinon. Pas sur le fil principal.
+GC_API bool gc_capture_frame(const char* path);
+
 // Vitesse de l'émulation (1 = vitesse de la console) et images par seconde. Mesure temporaire.
 GC_API double gc_speed(void);
 GC_API double gc_fps(void);
