@@ -35,12 +35,14 @@
 #include "Core/HW/GCPad.h"
 #include "Core/HW/SI/SI_Device.h"
 #include "Core/HW/Wiimote.h"
+#include "Core/HW/WiimoteEmu/WiimoteEmu.h"
 #include "Core/Host.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/State.h"
 #include "Core/System.h"
 #include "DiscIO/Enums.h"
 #include "DiscIO/Volume.h"
+#include "InputCommon/ControllerEmu/ControlGroup/Attachments.h"
 #include "InputCommon/ControllerEmu/ControllerEmu.h"
 #include "InputCommon/ControllerInterface/ControllerInterface.h"
 #include "InputCommon/ControllerInterface/iOS/StateManager.h"
@@ -454,6 +456,22 @@ void gc_set_axis(int device, int axis, float value)
 {
   ciface::iOS::StateManager::GetInstance()->SetAxisValue(
       device, static_cast<ciface::iOS::ButtonType>(axis), value);
+}
+
+void gc_set_wii_extension(int extension)
+{
+  const int value = std::clamp(extension, 0, 2);
+  s_wii_extension = value;
+  // Comme l'écran de réglages de Dolphin : la Wiimote émulée branche la nouvelle extension à sa prochaine mise à jour.
+  const auto lock = ControllerEmu::EmulatedController::GetStateLock();
+  InputConfig* config = Wiimote::GetConfig();
+  if (!config || config->GetControllerCount() == 0)
+    return;
+  auto* attachments = static_cast<ControllerEmu::Attachments*>(
+      Wiimote::GetWiimoteGroup(0, WiimoteEmu::WiimoteGroup::Attachments));
+  if (attachments)
+    attachments->SetSelectedAttachment((u32)value);
+  NSLog(@"[GameCube] wii extension %d", value);
 }
 
 int gc_disc_info(const char* path, char* game_id, int size)

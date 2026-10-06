@@ -80,6 +80,9 @@ GC_API void gc_set_input(uint32_t buttons, float main_x, float main_y, float c_x
 GC_API void gc_set_button(int device, int button, bool pressed);
 GC_API void gc_set_axis(int device, int axis, float value);
 
+// Change la manette branchée sur la Wiimote pendant la partie (0 aucune, 1 Nunchuk, 2 Classic Controller).
+GC_API void gc_set_wii_extension(int extension);
+
 // Système du disque (GC_DISC_*) et identifiant du jeu (ex. « RMCE01 »), copié dans game_id.
 // N'importe quel fil, sans gc_init.
 GC_API int gc_disc_info(const char* path, char* game_id, int size);
